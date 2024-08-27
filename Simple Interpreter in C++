@@ -1,0 +1,235 @@
+#include <cctype>
+#include <iostream>
+#include <cstdlib>
+#include <cstring>
+#include <vector>
+
+using namespace std;
+
+// Variable class to store the name and value of a variable
+class Variable {
+public:
+    string name;
+    int intValue;
+    string strValue;
+    bool isString;      // true if string, false if integer
+    bool isInitialized; // true if initialized, false if not
+
+    Variable(string n, bool isStr, bool isInit) : name(n), isString(isStr), isInitialized(isInit), intValue(0) {}
+};
+
+// Global symbol table
+vector<Variable> symbolTable;
+
+// Function to find a variable in the symbol table
+int findVariable(const string &name) {
+    for (int i = 0; i < symbolTable.size(); i++) {
+        if (symbolTable[i].name == name) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Function to evaluate an arithmetic expression (only for integers)
+int evaluateExpression(const string &expr) {
+    int value = 0;
+    char op = '+';
+    string token;
+
+    for (size_t i = 0; i <= expr.length(); i++) {
+        if (isdigit(expr[i])) {
+            token += expr[i];
+        } else if (isalpha(expr[i])) {
+            token += expr[i];
+        } else if (expr[i] == '+' || expr[i] == '-' || expr[i] == '*' || expr[i] == '/' || expr[i] == '\0') {
+            if (!token.empty()) {
+                int operand;
+                if (isdigit(token[0])) {
+                    operand = stoi(token);
+                } else {
+                    int varIndex = findVariable(token);
+                    if (varIndex == -1) {
+                        cerr << "Error: Undefined variable '" << token << "'\n";
+                        exit(1);
+                    }
+                    if (symbolTable[varIndex].isString || !symbolTable[varIndex].isInitialized) {
+                        cerr << "Error: Cannot perform arithmetic on non-integer or uninitialized variable '" << token << "'\n";
+                        exit(1);
+                    }
+                    operand = symbolTable[varIndex].intValue;
+                }
+
+                switch (op) {
+                case '+':
+                    value += operand;
+                    break;
+                case '-':
+                    value -= operand;
+                    break;
+                case '*':
+                    value *= operand;
+                    break;
+                case '/':
+                    if (operand == 0) {
+                        cerr << "Error: Division by zero\n";
+                        exit(1);
+                    }
+                    value /= operand;
+                    break;
+                }
+            }
+            op = expr[i];
+            token.clear();
+        }
+    }
+    return value;
+}
+
+// Function to evaluate a string concatenation expression
+void evaluateStringConcatenation(string &result, const string &expr) {
+    string token;
+    result.clear(); // Initialize result
+
+    for (size_t i = 0; i <= expr.length(); i++) {
+        if (isalnum(expr[i]) || expr[i] == '_') {
+            token += expr[i];
+        } else if (expr[i] == '+' || expr[i] == '\0') {
+            if (!token.empty()) {
+                int varIndex = findVariable(token);
+                if (varIndex == -1) {
+                    cerr << "Error: Undefined variable '" << token << "'\n";
+                    exit(1);
+                }
+                if (!symbolTable[varIndex].isString || !symbolTable[varIndex].isInitialized) {
+                    cerr << "Error: Cannot concatenate non-string or uninitialized variable '" << token << "'\n";
+                    exit(1);
+                }
+                result += symbolTable[varIndex].strValue;
+            }
+            token.clear();
+        }
+    }
+}
+
+// Function to process a single line of code
+void processLine(const string &line) {
+    string id, expr;
+
+    // Handle integer declaration and assignment: int a = 4 or int a;
+    if (sscanf(line.c_str(), "int %s = %[^\n]", &id[0], &expr[0]) == 2) {
+        if (findVariable(id) == -1) {
+            Variable var(id, false, true);
+            var.intValue = evaluateExpression(expr);
+            symbolTable.push_back(var);
+        } else {
+            cerr << "Error: Variable '" << id << "' already declared\n";
+            exit(1);
+        }
+    } else if (sscanf(line.c_str(), "int %s", &id[0]) == 1) {
+        if (findVariable(id) == -1) {
+            symbolTable.emplace_back(id, false, false); // Integer variable, not initialized
+        } else {
+            cerr << "Error: Variable '" << id << "' already declared\n";
+            exit(1);
+        }
+    }
+    // Handle string declaration and assignment: string s = "hello"
+    else if (sscanf(line.c_str(), "string %s = \"%[^\"]\"", &id[0], &expr[0]) == 2) {
+        if (findVariable(id) == -1) {
+            Variable var(id, true, true);
+            var.strValue = expr;
+            symbolTable.push_back(var);
+        } else {
+            cerr << "Error: Variable '" << id << "' already declared\n";
+            exit(1);
+        }
+    } else if (sscanf(line.c_str(), "string %s", &id[0]) == 1) {
+        if (findVariable(id) == -1) {
+            symbolTable.emplace_back(id, true, false); // String variable, not initialized
+        } else {
+            cerr << "Error: Variable '" << id << "' already declared\n";
+            exit(1);
+        }
+    }
+    // Handle string concatenation: string s = s1 + s2 or s = s1 + s2
+    else if (sscanf(line.c_str(), "string %s = %[^\n]", &id[0], &expr[0]) == 2) {
+        if (findVariable(id) == -1) {
+            Variable var(id, true, true);
+            evaluateStringConcatenation(var.strValue, expr);
+            symbolTable.push_back(var);
+        } else {
+            cerr << "Error: Variable '" << id << "' already declared\n";
+            exit(1);
+        }
+    } else if (sscanf(line.c_str(), "%s = %[^\n]", &id[0], &expr[0]) == 2) {
+        int varIndex = findVariable(id);
+        if (varIndex != -1) {
+            if (symbolTable[varIndex].isString) {
+                evaluateStringConcatenation(symbolTable[varIndex].strValue, expr);
+                symbolTable[varIndex].isInitialized = true;
+            } else {
+                symbolTable[varIndex].intValue = evaluateExpression(expr);
+                symbolTable[varIndex].isInitialized = true;
+            }
+        } else {
+            cerr << "Error: Undefined variable '" << id << "'\n";
+            exit(1);
+        }
+    }
+    // Handle print statement: print a or print s
+    else if (sscanf(line.c_str(), "print %[^\n]", &expr[0]) == 1) {
+        int varIndex = findVariable(expr);
+        if (varIndex != -1) {
+            if (!symbolTable[varIndex].isInitialized) {
+                cerr << "Error: Uninitialized variable '" << expr << "'\n";
+                exit(1);
+            }
+            if (symbolTable[varIndex].isString) {
+                cout << symbolTable[varIndex].strValue << endl;
+            } else {
+                cout << symbolTable[varIndex].intValue << endl;
+            }
+        } else {
+            cerr << "Error: Undefined variable '" << expr << "'\n";
+            exit(1);
+        }
+    }
+    // Handle scanf statement: scanf a
+    else if (sscanf(line.c_str(), "scanf %s", &id[0]) == 1) {
+        int varIndex = findVariable(id);
+        if (varIndex != -1) {
+            if (symbolTable[varIndex].isString) {
+                cerr << "Error: Scanf does not support strings for '" << id << "'\n";
+                exit(1);
+            }
+            cout << "Enter value for " << id << ": ";
+            cin >> symbolTable[varIndex].intValue;
+            symbolTable[varIndex].isInitialized = true;
+        } else {
+            cerr << "Error: Undefined variable '" << id << "'\n";
+            exit(1);
+        }
+    } else {
+        cerr << "Error: Invalid syntax\n";
+        exit(1);
+    }
+}
+
+int main() {
+    string line;
+
+    // Keep taking input until user types "exit"
+    while (true) {
+        cout << ">>> ";
+        getline(cin, line);
+
+        if (line == "exit") {
+            break;
+        }
+
+        processLine(line);
+    }
+
+    return 0;
+}
